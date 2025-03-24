@@ -31,7 +31,7 @@ async function main(
     implementationAuthorityAddress: null
   },
   complianceParams = {
-    complianceType: "default", // "default" or "modular" 
+    complianceType: "modular", // Default to modular compliance for Rule 506c
     modules: [],
     moduleSettings: []
   }
@@ -108,8 +108,8 @@ async function main(
     const modules = await deployComplianceModules();
     complianceAddress = modules.defaultCompliance;
   } else {
-    // Use modular compliance approach
-    console.log("Setting up ModularCompliance...");
+    // Use modular compliance approach with Rule 506c modules (KYC and Lockup)
+    console.log("Setting up Rule 506c Modular Compliance with KYC and Lockup modules...");
     
     // Deploy Modular Compliance
     const modularCompliance = await ethers.deployContract(
@@ -120,67 +120,43 @@ async function main(
     console.log(`ModularCompliance deployed to: ${modularCompliance.address}`);
     
     // Initialize the Modular Compliance
-    const mc = await ethers.getContractAt("ModularCompliance", modularCompliance.address);
-    await mc.init();
-    console.log(`ModularCompliance initialized`);
+    try {
+      const mc = await ethers.getContractAt("ModularCompliance", modularCompliance.address);
+      await mc.init();
+      console.log(`ModularCompliance initialized`);
+    } catch (error) {
+      // If already initialized, just continue
+      if (error.message.includes("Initializable: contract is already initialized")) {
+        console.log("ModularCompliance already initialized, continuing...");
+      } else {
+        throw error;
+      }
+    }
     
     complianceAddress = modularCompliance.address;
     
-    // Deploy our compliance modules (KYC and Lockup)
-    let kycModule, lockupModule;
-    
+    // Deploy or use existing compliance modules
     if (!complianceParams.modules || complianceParams.modules.length === 0) {
-      console.log("Deploying KYC and Lockup modules...");
-      
-      // Deploy KYC module
-      console.log("Deploying KYC module...");
-      kycModule = await ethers.deployContract("KYC");
-      await kycModule.deployed();
-      console.log(`KYC module deployed to: ${kycModule.address}`);
-      
-      // Initialize KYC module
-      console.log("Initializing KYC module...");
-      await kycModule.initialize();
-      console.log("KYC module initialized");
-      
-      // Deploy Lockup module
-      console.log("Deploying Lockup module...");
-      lockupModule = await ethers.deployContract("Lockup");
-      await lockupModule.deployed();
-      console.log(`Lockup module deployed to: ${lockupModule.address}`);
-      
-      // Initialize Lockup module
-      console.log("Initializing Lockup module...");
-      await lockupModule.initialize();
-      console.log("Lockup module initialized");
+      // Deploy compliance modules
+      console.log("Deploying Rule 506c compliance modules...");
+      const modules = await deployComplianceModules();
       
       // Add modules to the list
-      complianceModulesAddresses = [kycModule.address, lockupModule.address];
+      complianceModulesAddresses = [modules.kycModule, modules.lockupModule];
+      console.log(`Using KYC module at: ${modules.kycModule}`);
+      console.log(`Using Lockup module at: ${modules.lockupModule}`);
       
-      // Prepare initialization function calls
-      // We will initialize the modules after the token is deployed
-      // through callModuleFunction
-      
-      // KYC module initialization function
-      const kycInitFunctionCall = ethers.utils.defaultAbiCoder.encode(
-        ['address'],
-        [complianceAddress]
-      );
-      
-      // Lockup module initialization function
-      const lockupInitFunctionCall = ethers.utils.defaultAbiCoder.encode(
-        ['address'],
-        [complianceAddress]
-      );
+      // Prepare module initialization calls
+      const iface = new ethers.utils.Interface(['function initializeModule(address)']);
       
       // Our initialization calls will be sent after token deployment
-      const functionSig = '0x4cd9b8f6'; // initializeModule(address)
       complianceSettingsData = [
-        ethers.utils.hexConcat([functionSig, kycInitFunctionCall]),
-        ethers.utils.hexConcat([functionSig, lockupInitFunctionCall])
+        iface.encodeFunctionData('initializeModule', [complianceAddress]),
+        iface.encodeFunctionData('initializeModule', [complianceAddress])
       ];
     } else {
-      // Configure the modules if provided
+      // Use provided modules
+      console.log("Using provided compliance modules");
       complianceModulesAddresses = complianceParams.modules;
       complianceSettingsData = complianceParams.moduleSettings || [];
     }

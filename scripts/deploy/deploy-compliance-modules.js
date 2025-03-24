@@ -15,12 +15,52 @@ async function main() {
   await defaultCompliance.deployed();
   console.log(`DefaultCompliance deployed to: ${defaultCompliance.address}`);
   
-  // Skip individual compliance modules as they are abstract contracts
-  // We'll only use DefaultCompliance for now
+  // Deploy Rule 506c compliance modules (KYC and Lockup)
+  console.log("Deploying Rule 506c compliance modules...");
   
-  // Return the deployed address for use in future scripts
+  // Deploy KYC module
+  console.log("Deploying KYC module...");
+  const kycModule = await ethers.deployContract("KYC");
+  await kycModule.deployed();
+  console.log(`KYC module deployed to: ${kycModule.address}`);
+  
+  // Initialize KYC module
+  console.log("Initializing KYC module...");
+  try {
+    await kycModule.initialize();
+    console.log("KYC module initialized");
+  } catch (error) {
+    if (error.message.includes("Initializable: contract is already initialized")) {
+      console.log("KYC module already initialized, continuing...");
+    } else {
+      throw error;
+    }
+  }
+  
+  // Deploy Lockup module
+  console.log("Deploying Lockup module...");
+  const lockupModule = await ethers.deployContract("Lockup");
+  await lockupModule.deployed();
+  console.log(`Lockup module deployed to: ${lockupModule.address}`);
+  
+  // Initialize Lockup module
+  console.log("Initializing Lockup module...");
+  try {
+    await lockupModule.initialize();
+    console.log("Lockup module initialized");
+  } catch (error) {
+    if (error.message.includes("Initializable: contract is already initialized")) {
+      console.log("Lockup module already initialized, continuing...");
+    } else {
+      throw error;
+    }
+  }
+  
+  // Return the deployed addresses for use in future scripts
   return {
-    defaultCompliance: defaultCompliance.address
+    defaultCompliance: defaultCompliance.address,
+    kycModule: kycModule.address,
+    lockupModule: lockupModule.address
   };
 }
 
