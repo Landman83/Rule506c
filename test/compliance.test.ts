@@ -465,4 +465,185 @@ describe('ModularCompliance', () => {
       });
     });
   });
+
+  describe('KYC Module Integration', () => {
+    let compliance;
+    let kycModule;
+    let token;
+    let identityRegistry;
+    let aliceWallet;
+    let bobWallet;
+    let charlieWallet;
+    let deployer;
+
+    beforeEach(async () => {
+      const fixture = await loadFixture(deployFullSuiteFixture);
+      
+      // Get signers
+      [deployer] = await ethers.getSigners();
+      aliceWallet = fixture.accounts.aliceWallet;
+      bobWallet = fixture.accounts.bobWallet;
+      charlieWallet = fixture.accounts.charlieWallet;
+      
+      // Get contracts from the fixture
+      token = fixture.suite.token;
+      identityRegistry = fixture.suite.identityRegistry;
+      
+      // Deploy our own modular compliance for testing 
+      const ModularComplianceContract = await ethers.getContractFactory("ModularCompliance");
+      compliance = await ModularComplianceContract.deploy();
+      await compliance.init();
+      
+      // Deploy KYC module
+      const KYCFactory = await ethers.getContractFactory("KYC");
+      kycModule = await KYCFactory.deploy();
+      await kycModule.initialize();
+      
+      // Set up compliance
+      await compliance.bindToken(token.address);
+      
+      // Add KYC module to compliance
+      await compliance.addModule(kycModule.address);
+      
+      // Initialize the module through compliance using the interface
+      const iface = new ethers.utils.Interface(['function initializeModule(address)']);
+      const encodedData = iface.encodeFunctionData('initializeModule', [compliance.address]);
+      await compliance.callModuleFunction(encodedData, kycModule.address);
+    });
+
+    it('should be properly initialized', async () => {
+      expect(await kycModule.name()).to.equal("KYC");
+      expect(await kycModule.isPlugAndPlay()).to.equal(false);
+    });
+
+    it('should be added to compliance', async () => {
+      const modules = await compliance.getModules();
+      expect(modules).to.include(kycModule.address);
+    });
+
+    it('should correctly report KYC status of investors', async () => {
+      // The fixture already marks Alice and Bob as verified
+      expect(await identityRegistry.isVerified(aliceWallet.address)).to.equal(true);
+      expect(await identityRegistry.isVerified(bobWallet.address)).to.equal(true);
+      expect(await identityRegistry.isVerified(charlieWallet.address)).to.equal(false);
+      
+      expect(await kycModule.isKYCApproved(aliceWallet.address, compliance.address)).to.equal(true);
+      expect(await kycModule.isKYCApproved(bobWallet.address, compliance.address)).to.equal(true);
+      expect(await kycModule.isKYCApproved(charlieWallet.address, compliance.address)).to.equal(false);
+    });
+
+    it('should prevent multiple initialization', async () => {
+      const iface = new ethers.utils.Interface(['function initializeModule(address)']);
+      const encodedData = iface.encodeFunctionData('initializeModule', [compliance.address]);
+      
+      await expect(
+        compliance.callModuleFunction(encodedData, kycModule.address)
+      ).to.be.reverted; // Just check that it reverts, without checking the specific error message
+    });
+  });
+
+  describe('Lockup Module Integration', () => {
+    let compliance;
+    let lockupModule;
+    let token;
+    let aliceWallet;
+    let bobWallet;
+    let deployer;
+    const LOCKUP_NAME = ethers.utils.formatBytes32String("TEST_LOCKUP");
+    const DEFAULT_LOCKUP_PERIOD = 360; // 6 minutes in seconds
+
+    beforeEach(async () => {
+      const fixture = await loadFixture(deployFullSuiteFixture);
+      
+      // Get signers
+      [deployer] = await ethers.getSigners();
+      aliceWallet = fixture.accounts.aliceWallet;
+      bobWallet = fixture.accounts.bobWallet;
+      
+      // Get contracts from the fixture
+      token = fixture.suite.token;
+      
+      // Deploy our own modular compliance for testing 
+      const ModularComplianceContract = await ethers.getContractFactory("ModularCompliance");
+      compliance = await ModularComplianceContract.deploy();
+      await compliance.init();
+      
+      // Deploy Lockup module
+      const LockupFactory = await ethers.getContractFactory("Lockup");
+      lockupModule = await LockupFactory.deploy();
+      await lockupModule.initialize();
+      
+      // Set up compliance
+      await compliance.bindToken(token.address);
+      
+      // Add Lockup module to compliance
+      await compliance.addModule(lockupModule.address);
+      
+      // Initialize the module through compliance using the interface
+      const iface = new ethers.utils.Interface(['function initializeModule(address)']);
+      const encodedData = iface.encodeFunctionData('initializeModule', [compliance.address]);
+      await compliance.callModuleFunction(encodedData, lockupModule.address);
+    });
+
+    it('should be properly initialized', async () => {
+      expect(await lockupModule.name()).to.equal("Lockup");
+      expect(await lockupModule.isPlugAndPlay()).to.equal(false);
+      expect(await lockupModule.DEFAULT_LOCKUP_PERIOD()).to.equal(DEFAULT_LOCKUP_PERIOD);
+    });
+
+    it('should be added to compliance', async () => {
+      const modules = await compliance.getModules();
+      expect(modules).to.include(lockupModule.address);
+    });
+
+    it('should allow adding a lockup to a user', async () => {
+      const lockupAmount = ethers.utils.parseEther("500");
+      
+      const lockupIface = new ethers.utils.Interface(['function addLockUpToUser(address,uint256,bytes32)']);
+      const lockupEncodedData = lockupIface.encodeFunctionData('addLockUpToUser', [
+        aliceWallet.address, 
+        lockupAmount, 
+        LOCKUP_NAME
+      ]);
+      await compliance.callModuleFunction(lockupEncodedData, lockupModule.address);
+      
+      const lockup = await lockupModule.getLockUp(aliceWallet.address, LOCKUP_NAME);
+      expect(lockup[0]).to.equal(lockupAmount); // lockupAmount
+      expect(lockup[2]).to.equal(DEFAULT_LOCKUP_PERIOD); // lockUpPeriodSeconds
+      expect(lockup[3]).to.equal(0); // unlockedAmount (should be 0 initially)
+    });
+
+    it('should track locked tokens correctly', async () => {
+      const lockupAmount = ethers.utils.parseEther("500");
+      
+      const lockupIface = new ethers.utils.Interface(['function addLockUpToUser(address,uint256,bytes32)']);
+      const lockupEncodedData = lockupIface.encodeFunctionData('addLockUpToUser', [
+        bobWallet.address, 
+        lockupAmount, 
+        LOCKUP_NAME
+      ]);
+      await compliance.callModuleFunction(lockupEncodedData, lockupModule.address);
+      
+      const lockedAmount = await lockupModule.getLockedTokenToUser(bobWallet.address);
+      expect(lockedAmount).to.equal(lockupAmount);
+    });
+
+    it('should prevent duplicate lockup names for the same user', async () => {
+      const lockupAmount = ethers.utils.parseEther("100");
+      
+      // Add a lockup
+      const lockupIface = new ethers.utils.Interface(['function addLockUpToUser(address,uint256,bytes32)']);
+      const lockupEncodedData = lockupIface.encodeFunctionData('addLockUpToUser', [
+        aliceWallet.address, 
+        lockupAmount, 
+        LOCKUP_NAME
+      ]);
+      await compliance.callModuleFunction(lockupEncodedData, lockupModule.address);
+      
+      // Try to add the same lockup again
+      await expect(
+        compliance.callModuleFunction(lockupEncodedData, lockupModule.address)
+      ).to.be.revertedWith("Lockup already exists");
+    });
+  });
 });
