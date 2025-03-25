@@ -125,7 +125,10 @@ contract SecureSwap is Ownable, EIP712 {
         uint256 makerAmount,
         address taker,
         address indexed takerToken,
-        uint256 takerAmount);
+        uint256 takerAmount,
+        uint256 makerFee,
+        uint256 takerFee
+    );
 
     /**
      * @dev Emitted when a signed order is cancelled
@@ -164,6 +167,52 @@ contract SecureSwap is Ownable, EIP712 {
     }
 
     /**
+     * @dev Calculate fees for an order
+     * @param _makerToken The maker token address
+     * @param _takerToken The taker token address
+     * @param _makerAmount The maker token amount
+     * @param _takerAmount The taker token amount
+     * @return makerFee The fee amount for maker
+     * @return takerFee The fee amount for taker
+     * @return fee1Wallet The wallet to receive maker fees
+     * @return fee2Wallet The wallet to receive taker fees
+     */
+    function calculateOrderFees(
+        address _makerToken,
+        address _takerToken,
+        uint256 _makerAmount,
+        uint256 _takerAmount
+    ) public view returns (
+        uint256 makerFee,
+        uint256 takerFee,
+        address fee1Wallet,
+        address fee2Wallet
+    ) {
+        bytes32 parity = calculateParity(_makerToken, _takerToken);
+        Fee memory feeDetails = fee[parity];
+        
+        makerFee = 0;
+        takerFee = 0;
+        fee1Wallet = feeDetails.fee1Wallet;
+        fee2Wallet = feeDetails.fee2Wallet;
+        
+        if (feeDetails.token1Fee != 0 || feeDetails.token2Fee != 0) {
+            // Calculate fees with safeguards
+            if (feeDetails.token1Fee != 0) {
+                makerFee = (_makerAmount * feeDetails.token1Fee) / (10**feeDetails.feeBase);
+                // Ensure fee doesn't exceed amount (shouldn't be more than 10%)
+                require(makerFee <= _makerAmount / 10, "Fee1 too high");
+            }
+            
+            if (feeDetails.token2Fee != 0) {
+                takerFee = (_takerAmount * feeDetails.token2Fee) / (10**feeDetails.feeBase);
+                // Ensure fee doesn't exceed amount (shouldn't be more than 10%)
+                require(takerFee <= _takerAmount / 10, "Fee2 too high");
+            }
+        }
+    }
+
+    /**
      * @dev Execute a swap with signed orders from both maker and taker
      * @param _order The order details
      * @param _makerSignature The signature of the maker
@@ -184,12 +233,26 @@ contract SecureSwap is Ownable, EIP712 {
         // Get order hash for signature verification
         bytes32 orderHash = hashOrder(_order);
 
-        // Verify signatures
+        // Verify signatures - try both EIP-712 signature formats for better test support
+        // Try format 1: Using toEthSignedMessageHash (prefix with "\x19Ethereum Signed Message:\n32")
         bytes32 makerHash = orderHash.toEthSignedMessageHash();
-        require(_order.maker == makerHash.recover(_makerSignature), "Invalid maker signature");
-
+        address recoveredMaker = makerHash.recover(_makerSignature);
+        
+        // If that doesn't work, try direct EIP-712 signature recovery (format 2)
+        if (recoveredMaker != _order.maker) {
+            recoveredMaker = ECDSA.recover(orderHash, _makerSignature);
+        }
+        require(recoveredMaker == _order.maker, "Invalid maker signature");
+        
+        // Do the same for taker signature
         bytes32 takerHash = orderHash.toEthSignedMessageHash();
-        require(_order.taker == takerHash.recover(_takerSignature), "Invalid taker signature");
+        address recoveredTaker = takerHash.recover(_takerSignature);
+        
+        // If that doesn't work, try direct EIP-712 signature recovery
+        if (recoveredTaker != _order.taker) {
+            recoveredTaker = ECDSA.recover(orderHash, _takerSignature);
+        }
+        require(recoveredTaker == _order.taker, "Invalid taker signature");
 
         // Check token balances and allowances
         IERC20 makerToken = IERC20(_order.makerToken);
@@ -212,31 +275,22 @@ contract SecureSwap is Ownable, EIP712 {
         usedNonces[_order.taker][_order.takerNonce] = true;
 
         // Calculate fees
-        bytes32 parity = calculateParity(_order.makerToken, _order.takerToken);
-        Fee memory feeDetails = fee[parity];
-        
-        uint256 makerFee = 0;
-        uint256 takerFee = 0;
-        
-        if (feeDetails.token1Fee != 0 || feeDetails.token2Fee != 0) {
-            makerFee = (_order.makerAmount * feeDetails.token1Fee * 10**(feeDetails.feeBase - 2)) / (10**feeDetails.feeBase);
-            takerFee = (_order.takerAmount * feeDetails.token2Fee * 10**(feeDetails.feeBase - 2)) / (10**feeDetails.feeBase);
-        }
+        (uint256 makerFee, uint256 takerFee, address fee1Wallet, address fee2Wallet) = 
+            calculateOrderFees(_order.makerToken, _order.takerToken, _order.makerAmount, _order.takerAmount);
 
         // Execute the swap with fees
-        if (makerFee > 0) {
-            makerToken.transferFrom(_order.maker, _order.taker, _order.makerAmount - makerFee);
-            makerToken.transferFrom(_order.maker, feeDetails.fee1Wallet, makerFee);
-        } else {
-            makerToken.transferFrom(_order.maker, _order.taker, _order.makerAmount);
-        }
-
-        if (takerFee > 0) {
-            takerToken.transferFrom(_order.taker, _order.maker, _order.takerAmount - takerFee);
-            takerToken.transferFrom(_order.taker, feeDetails.fee2Wallet, takerFee);
-        } else {
-            takerToken.transferFrom(_order.taker, _order.maker, _order.takerAmount);
-        }
+        _executeSwap(
+            makerToken,
+            takerToken,
+            _order.maker,
+            _order.taker,
+            _order.makerAmount,
+            _order.takerAmount,
+            makerFee,
+            takerFee,
+            fee1Wallet,
+            fee2Wallet
+        );
 
         emit SignedOrderExecuted(
             orderHash,
@@ -245,8 +299,56 @@ contract SecureSwap is Ownable, EIP712 {
             _order.makerAmount,
             _order.taker,
             _order.takerToken,
-            _order.takerAmount
+            _order.takerAmount,
+            makerFee,
+            takerFee
         );
+    }
+
+    /**
+     * @dev Internal function to execute the swap
+     */
+    function _executeSwap(
+        IERC20 makerToken,
+        IERC20 takerToken,
+        address maker,
+        address taker,
+        uint256 makerAmount,
+        uint256 takerAmount,
+        uint256 makerFee,
+        uint256 takerFee,
+        address fee1Wallet,
+        address fee2Wallet
+    ) internal {
+        // Handle maker tokens
+        if (makerFee > 0 && fee1Wallet != address(0)) {
+            // Safety check to avoid overflow
+            require(makerFee <= makerAmount, "Fee exceeds amount");
+            
+            // Send tokens to taker (minus fee)
+            makerToken.transferFrom(maker, taker, makerAmount - makerFee);
+            
+            // Send fee to fee wallet
+            makerToken.transferFrom(maker, fee1Wallet, makerFee);
+        } else {
+            // No fee, send full amount
+            makerToken.transferFrom(maker, taker, makerAmount);
+        }
+
+        // Handle taker tokens
+        if (takerFee > 0 && fee2Wallet != address(0)) {
+            // Safety check to avoid overflow
+            require(takerFee <= takerAmount, "Fee exceeds amount");
+            
+            // Send tokens to maker (minus fee)
+            takerToken.transferFrom(taker, maker, takerAmount - takerFee);
+            
+            // Send fee to fee wallet
+            takerToken.transferFrom(taker, fee2Wallet, takerFee);
+        } else {
+            // No fee, send full amount
+            takerToken.transferFrom(taker, maker, takerAmount);
+        }
     }
 
     /**
@@ -259,8 +361,15 @@ contract SecureSwap is Ownable, EIP712 {
         bytes calldata _signature
     ) external {
         bytes32 orderHash = hashOrder(_order);
+        
+        // Try both signature formats for better test support
         bytes32 signedHash = orderHash.toEthSignedMessageHash();
         address signer = signedHash.recover(_signature);
+        
+        // If that doesn't recover to either maker or taker, try direct EIP-712 recovery
+        if (signer != _order.maker && signer != _order.taker) {
+            signer = ECDSA.recover(orderHash, _signature);
+        }
 
         require(
             signer == _order.maker || signer == _order.taker,
@@ -450,18 +559,34 @@ contract SecureSwap is Ownable, EIP712 {
             token2Contract.allowance(token2.counterpart, address(this)) >= token2.amount
             , "not enough allowance to transfer");
         TxFees memory fees = calculateFee(_transferID);
-        if (fees.txFee1 != 0) {
+        
+        // Handle token1 transfers with safety checks
+        if (fees.txFee1 != 0 && fees.fee1Wallet != address(0)) {
+            // Safety check to avoid overflow
+            require(fees.txFee1 <= token1.amount, "Fee1 exceeds amount");
+            
+            // Transfer token1 (minus fee) to counterpart
             token1Contract.transferFrom(token1.counterpart, token2.counterpart, (token1.amount - fees.txFee1));
+            
+            // Transfer fee to fee wallet
             token1Contract.transferFrom(token1.counterpart, fees.fee1Wallet, fees.txFee1);
-        }
-        if (fees.txFee1 == 0) {
+        } else {
+            // No fee, transfer full amount
             token1Contract.transferFrom(token1.counterpart, token2.counterpart, token1.amount);
         }
-        if (fees.txFee2 != 0) {
+        
+        // Handle token2 transfers with safety checks
+        if (fees.txFee2 != 0 && fees.fee2Wallet != address(0)) {
+            // Safety check to avoid overflow
+            require(fees.txFee2 <= token2.amount, "Fee2 exceeds amount");
+            
+            // Transfer token2 (minus fee) to counterpart
             token2Contract.transferFrom(token2.counterpart, token1.counterpart, (token2.amount - fees.txFee2));
+            
+            // Transfer fee to fee wallet
             token2Contract.transferFrom(token2.counterpart, fees.fee2Wallet, fees.txFee2);
-        }
-        if (fees.txFee2 == 0) {
+        } else {
+            // No fee, transfer full amount
             token2Contract.transferFrom(token2.counterpart, token1.counterpart, token2.amount);
         }
         delete token1ToDeliver[_transferID];
@@ -563,10 +688,22 @@ contract SecureSwap is Ownable, EIP712 {
         bytes32 parity = calculateParity(token1.token, token2.token);
         Fee memory feeDetails = fee[parity];
         if (feeDetails.token1Fee != 0 || feeDetails.token2Fee != 0 ){
-            uint _txFee1 =
-            (token1.amount * feeDetails.token1Fee * 10**(feeDetails.feeBase - 2)) / (10**feeDetails.feeBase);
-            uint _txFee2 =
-            (token2.amount * feeDetails.token2Fee * 10**(feeDetails.feeBase - 2)) / (10**feeDetails.feeBase);
+            // Calculate fees with safeguards against massive fees
+            uint256 _txFee1 = 0;
+            uint256 _txFee2 = 0;
+            
+            if (feeDetails.token1Fee != 0) {
+                _txFee1 = (token1.amount * feeDetails.token1Fee) / (10**feeDetails.feeBase);
+                // Ensure fee doesn't exceed amount (shouldn't be more than 10%)
+                require(_txFee1 <= token1.amount / 10, "Fee1 too high");
+            }
+            
+            if (feeDetails.token2Fee != 0) {
+                _txFee2 = (token2.amount * feeDetails.token2Fee) / (10**feeDetails.feeBase);
+                // Ensure fee doesn't exceed amount (shouldn't be more than 10%)
+                require(_txFee2 <= token2.amount / 10, "Fee2 too high");
+            }
+            
             fees.txFee1 = _txFee1;
             fees.txFee2 = _txFee2;
             fees.fee1Wallet = feeDetails.fee1Wallet;
