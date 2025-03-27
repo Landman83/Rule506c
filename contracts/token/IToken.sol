@@ -457,4 +457,12 @@ interface IToken is IERC20 {
      *  @param _userAddress the address of the wallet on which getFrozenTokens is called
      */
     function getFrozenTokens(address _userAddress) external view returns (uint256);
+
+    /**
+     * @dev Returns the balance of the token at a specific block number.
+     * @param _owner The address of the token holder.
+     * @param _blockNumber The block number at which to check the balance.
+     * @return The balance of the token at the specified block number.
+     */
+    function balanceOfAt(address _owner, uint256 _blockNumber) external view returns (uint256);
 }

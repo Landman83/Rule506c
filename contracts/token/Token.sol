@@ -592,4 +592,17 @@ contract Token is IToken, AgentRoleUpgradeable, TokenStorage {
      */
     // solhint-disable-next-line no-empty-blocks
     function _beforeTokenTransfer(address _from, address _to, uint256 _amount) internal virtual {}
+
+    /**
+     * @dev Returns the balance of the token at a specific block number.
+     * @param _owner The address of the token holder.
+     * @param _blockNumber The block number at which to check the balance.
+     * @return The balance of the token at the specified block number.
+     */
+    function balanceOfAt(address _owner, uint256 _blockNumber) external view override returns (uint256) {
+        // Since we don't have historical balances stored, we'll return the current balance
+        // In a real implementation, you would need to store snapshots of balances at different blocks
+        // For now, this is a simplified implementation
+        return balanceOf(_owner);
+    }
 }

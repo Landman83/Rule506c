@@ -72,6 +72,10 @@ contract AgentRole is Ownable {
 
     Roles.Role private _agents;
 
+    constructor() {
+        // Ownable's constructor is called automatically and sets msg.sender as owner
+    }
+
     event AgentAdded(address indexed _agent);
     event AgentRemoved(address indexed _agent);
 
@@ -96,3 +100,4 @@ contract AgentRole is Ownable {
         return _agents.has(_agent);
     }
 }
+
