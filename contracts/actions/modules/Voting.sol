@@ -158,8 +158,8 @@ contract WeightedVoteCheckpoint is VotingStorage, Ownable, AgentRole {
      * @return The checkpoint ID
      */
     function createCheckpoint() public onlyAgent returns (uint256) {
-        // Since we're not using actual token checkpoints, we return a dummy value
-        return block.timestamp;
+        // Since we're not using actual token checkpoints, we return the current block number
+        return block.number;
     }
     
     /**
@@ -351,7 +351,7 @@ contract WeightedVoteCheckpoint is VotingStorage, Ownable, AgentRole {
         require(!ballot.voted[msg.sender], "Already voted");
         require(!ballot.exempted[msg.sender], "Voter is exempted");
         
-        // Get voter's token balance at checkpoint
+        // Get voter's token balance - using current balance since checkpoints aren't implemented fully yet
         uint256 weight = securityToken.balanceOf(msg.sender);
         require(weight > 0, "No voting weight");
         
@@ -397,7 +397,7 @@ contract WeightedVoteCheckpoint is VotingStorage, Ownable, AgentRole {
             seen[proposalId] = true;
         }
         
-        // Get voter's token balance at checkpoint
+        // Get voter's token balance - using current balance since checkpoints aren't implemented yet
         uint256 weight = securityToken.balanceOf(msg.sender);
         require(weight > 0, "No voting weight");
         
