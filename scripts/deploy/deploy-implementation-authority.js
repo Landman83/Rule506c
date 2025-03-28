@@ -44,6 +44,10 @@ async function main() {
   await modularComplianceImplementation.deployed();
   console.log(`ModularCompliance implementation: ${modularComplianceImplementation.address}`);
   
+  const modularActionsImplementation = await ethers.deployContract("ModularActions");
+  await modularActionsImplementation.deployed();
+  console.log(`ModularActions implementation: ${modularActionsImplementation.address}`);
+  
   // Register the implementations in the authority
   const versionStruct = {
     major: 4,
@@ -58,6 +62,7 @@ async function main() {
     irsImplementation: identityRegistryStorageImplementation.address,
     tirImplementation: trustedIssuersRegistryImplementation.address,
     mcImplementation: modularComplianceImplementation.address,
+    maImplementation: modularActionsImplementation.address,
   };
   
   console.log("Adding version to Implementation Authority...");
@@ -73,6 +78,7 @@ async function main() {
     identityRegistryStorageImplementation: identityRegistryStorageImplementation.address,
     trustedIssuersRegistryImplementation: trustedIssuersRegistryImplementation.address,
     modularComplianceImplementation: modularComplianceImplementation.address,
+    modularActionsImplementation: modularActionsImplementation.address,
   };
 }
 

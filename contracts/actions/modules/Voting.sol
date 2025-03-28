@@ -9,6 +9,7 @@ import "@openzeppelin/contracts/utils/math/Math.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "../../token/IToken.sol";
 import "../../roles/AgentRole.sol";
+import "./AbstractModule.sol";
 
 /**
  * @title Storage contract for voting functionality
@@ -51,7 +52,7 @@ contract VotingStorage {
  * @title Weighted Vote Checkpoint contract
  * @dev Contract for managing token-weighted voting with ranked-choice support
  */
-contract WeightedVoteCheckpoint is VotingStorage, Ownable, AgentRole {
+contract WeightedVoteCheckpoint is VotingStorage, Ownable, AgentRole, AbstractModule {
     // Security token reference
     IToken public securityToken;
     
@@ -726,5 +727,13 @@ contract WeightedVoteCheckpoint is VotingStorage, Ownable, AgentRole {
         bytes32[] memory permissions = new bytes32[](1);
         permissions[0] = ADMIN;
         return permissions;
+    }
+
+    /**
+     * @notice Returns the name of the module
+     * @return string The name of the module
+     */
+    function name() external pure override returns (string memory) {
+        return "WeightedVoteCheckpoint";
     }
 }

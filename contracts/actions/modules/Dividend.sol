@@ -10,6 +10,7 @@ import "@openzeppelin/contracts/utils/math/Math.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "../../token/IToken.sol";
 import "../../roles/AgentRole.sol";
+import "./AbstractModule.sol";
 
 /**
  * @title Storage contract for dividend functionality
@@ -61,7 +62,7 @@ contract DividendStorage {
  * @title Dividend Checkpoint contract
  * @dev Contract for managing ERC20 token dividends for security tokens
  */
-contract DividendCheckpoint is DividendStorage, Ownable, AgentRole {
+contract DividendCheckpoint is DividendStorage, Ownable, AgentRole, AbstractModule {
     // Security token reference
     IToken public securityToken;
 
@@ -790,5 +791,13 @@ contract DividendCheckpoint is DividendStorage, Ownable, AgentRole {
             require(IERC20(dividend.tokenAddress).transfer(wallet, remainingWithheld), "Token transfer failed");
             emit DividendWithholdingWithdrawn(wallet, _dividendIndex, dividend.tokenAddress, remainingWithheld);
         }
+    }
+    
+    /**
+     * @notice Returns the name of the module
+     * @return string The name of the module
+     */
+    function name() external pure override returns (string memory) {
+        return "DividendCheckpoint";
     }
 }

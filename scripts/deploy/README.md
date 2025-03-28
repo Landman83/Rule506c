@@ -34,12 +34,52 @@ The scripts should be deployed in the following order:
    - Deploys a complete token suite with all components
    - Configures identity, compliance and token details
 
+7. **Rule 506c Token** - `deploy-rule506c-token.js`
+   - Deploys a token pre-configured for Rule 506c compliance
+   - Includes KYC and lockup modules for investor verification
+
+8. **Rule506c Factory** - `deploy-rule506c-factory.js`
+   - Deploys a specialized factory for Rule 506c tokens
+   - Slimmed down version that omits action modules integration
+   - Avoids contract size limitations
+
+9. **Rule 506c Token (Slim)** - `deploy-rule506c-token-slim.js`
+   - Deploys a token using the specialized Rule506c factory
+   - Streamlined version that avoids contract size limitations
+
+10. **Action Service** - `deploy-action-service.js`
+    - Deploys a standalone ModularActions instance with modules
+    - Completely separate from token deployment
+    - Takes a token address as parameter
+
+11. **Modular Solution** - `deploy-modular-solution.js`
+    - Combines slim token factory with standalone action service
+    - Fully modular approach that avoids contract size limitations
+
 ## Usage Examples
 
 ### Deploy the full stack with a single command
 
 ```bash
 npx hardhat run scripts/deploy/deploy-token-suite.js --network <network-name>
+```
+
+### Deploy Rule 506c Token using Modular Approach
+
+```bash
+npx hardhat run scripts/deploy/deploy-modular-solution.js --network <network-name>
+```
+
+### Deploy Slim Rule 506c Token
+
+```bash
+npx hardhat run scripts/deploy/deploy-rule506c-token-slim.js --network <network-name>
+```
+
+### Deploy Standalone Action Service for an existing token
+
+```bash
+npx hardhat run scripts/deploy/deploy-action-service.js --network <network-name> <token-address>
 ```
 
 ### Deploy individual components

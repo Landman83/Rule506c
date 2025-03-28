@@ -81,6 +81,7 @@ abstract contract AbstractProxy is IProxy, Initializable {
             && (ITREXImplementationAuthority(_newImplementationAuthority)).getIRSImplementation() != address(0)
             && (ITREXImplementationAuthority(_newImplementationAuthority)).getMCImplementation() != address(0)
             && (ITREXImplementationAuthority(_newImplementationAuthority)).getTIRImplementation() != address(0)
+            && (ITREXImplementationAuthority(_newImplementationAuthority)).getMAImplementation() != address(0)
         , "invalid Implementation Authority");
         _storeImplementationAuthority(_newImplementationAuthority);
         emit ImplementationAuthoritySet(_newImplementationAuthority);

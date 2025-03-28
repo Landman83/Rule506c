@@ -169,6 +169,17 @@ contract TREXImplementationAuthority is ITREXImplementationAuthority, Ownable {
         address _ctr = address(IIdentityRegistry(_ir).topicsRegistry());
         address _tir = address(IIdentityRegistry(_ir).issuersRegistry());
 
+        // Get the ModularActions address associated with the token
+        address _ma = address(0);
+        // Try to find ModularActions by checking tokenDeploy mapping in TREXFactory
+        ITREXFactory factory = ITREXFactory(_trexFactory);
+        
+        // Get the owner of ModularActions if it exists (check will be performed later)
+        address maOwner = address(0);
+        try Ownable(_ma).owner() returns (address _owner) {
+            maOwner = _owner;
+        } catch {}
+        
         // calling this function requires ownership of ALL contracts of the T-REX suite
         if(
             Ownable(_token).owner() != msg.sender
@@ -176,7 +187,8 @@ contract TREXImplementationAuthority is ITREXImplementationAuthority, Ownable {
             || Ownable(_mc).owner() != msg.sender
             || Ownable(_irs).owner() != msg.sender
             || Ownable(_ctr).owner() != msg.sender
-            || Ownable(_tir).owner() != msg.sender) {
+            || Ownable(_tir).owner() != msg.sender
+            || (_ma != address(0) && maOwner != address(0) && maOwner != msg.sender)) {
             revert("caller NOT owner of all contracts impacted");
         }
 
@@ -209,6 +221,10 @@ contract TREXImplementationAuthority is ITREXImplementationAuthority, Ownable {
         // IRS can be shared by multiple tokens, and therefore could have been updated already
         if (IProxy(_irs).getImplementationAuthority() == address(this)) {
             IProxy(_irs).setImplementationAuthority(_newImplementationAuthority);
+        }
+        // Set implementation authority for ModularActions if it exists
+        if (_ma != address(0)) {
+            try IProxy(_ma).setImplementationAuthority(_newImplementationAuthority) {} catch {}
         }
         emit ImplementationAuthorityChanged(_token, _newImplementationAuthority);
     }
@@ -275,6 +291,13 @@ contract TREXImplementationAuthority is ITREXImplementationAuthority, Ownable {
     function getMCImplementation() external view override returns (address) {
         return _contracts[_versionToBytes(_currentVersion)].mcImplementation;
     }
+    
+    /**
+     *  @dev See {ITREXImplementationAuthority-getMAImplementation}.
+     */
+    function getMAImplementation() external view override returns (address) {
+        return _contracts[_versionToBytes(_currentVersion)].maImplementation;
+    }
 
     /**
      *  @dev See {ITREXImplementationAuthority-addTREXVersion}.
@@ -291,6 +314,7 @@ contract TREXImplementationAuthority is ITREXImplementationAuthority, Ownable {
             && _trex.mcImplementation != address(0)
             && _trex.tirImplementation != address(0)
             && _trex.tokenImplementation != address(0)
+            && _trex.maImplementation != address(0)
         , "invalid argument - zero address");
         _contracts[_versionToBytes(_version)] = _trex;
         emit TREXVersionAdded(_version, _trex);

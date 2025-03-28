@@ -90,6 +90,11 @@ interface ITREXFactory {
         address[] complianceModules;
         // settings calls for compliance modules
         bytes[] complianceSettings;
+        // modules to bind to the actions contract, indexes correspond to the actionSettings indexes
+        // if a module doesn't require settings, it can be added at the end of the array, at index > actionSettings.length
+        address[] actionModules;
+        // settings calls for action modules
+        bytes[] actionSettings;
     }
 
     struct ClaimDetails {
@@ -114,7 +119,7 @@ interface ITREXFactory {
 
     /// event emitted by the factory when a full suite of T-REX contracts is deployed
     event TREXSuiteDeployed(address indexed _token, address _ir, address _irs, address _tir, address _ctr, address
-    _mc, string indexed _salt);
+    _mc, address _ma, string indexed _salt);
 
     /// functions
 
@@ -150,6 +155,7 @@ interface ITREXFactory {
      *  CTR : deploy CTR contract (proxy), set required claims, set owner
      *  TIR : deploy TIR contract (proxy), set trusted issuers, set owner
      *  Compliance: deploy modular compliance, bind with token, add modules, set modules parameters, set owner
+     *  Actions: deploy modular actions, bind with token, add modules, set module parameters, set owner
      *  All contracts are deployed using CREATE2 opcode, and therefore are deployed at a predetermined address
      *  The address can be the same on all EVM blockchains as long as the factory address is the same as well
      *  Only owner can call.

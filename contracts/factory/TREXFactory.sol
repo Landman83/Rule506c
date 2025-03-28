@@ -75,6 +75,8 @@ import "../proxy/IdentityRegistryProxy.sol";
 import "../proxy/IdentityRegistryStorageProxy.sol";
 import "../proxy/TrustedIssuersRegistryProxy.sol";
 import "../proxy/ModularComplianceProxy.sol";
+import "../proxy/ModularActionsProxy.sol";
+import "../actions/ModularActions.sol";
 import "./ITREXFactory.sol";
 import "@onchain-id/solidity/contracts/factory/IIdFactory.sol";
 
@@ -117,10 +119,16 @@ contract TREXFactory is ITREXFactory, Ownable {
         , "max 30 module actions at deployment");
         require((_tokenDetails.complianceModules).length >= (_tokenDetails.complianceSettings).length
         , "invalid compliance pattern");
+        // Validate action modules configuration
+        require((_tokenDetails.actionModules).length <= 30
+        , "max 30 action modules at deployment");
+        require((_tokenDetails.actionModules).length >= (_tokenDetails.actionSettings).length
+        , "invalid action modules pattern");
 
         ITrustedIssuersRegistry tir = ITrustedIssuersRegistry(_deployTIR(_salt, _implementationAuthority));
         IClaimTopicsRegistry ctr = IClaimTopicsRegistry(_deployCTR(_salt, _implementationAuthority));
         IModularCompliance mc = IModularCompliance(_deployMC(_salt, _implementationAuthority));
+        address ma = _deployMA(_salt, _implementationAuthority);
         IIdentityRegistryStorage irs;
         if (_tokenDetails.irs == address(0)) {
             irs = IIdentityRegistryStorage(_deployIRS(_salt, _implementationAuthority));
@@ -167,13 +175,30 @@ contract TREXFactory is ITREXFactory, Ownable {
                 mc.callModuleFunction(_tokenDetails.complianceSettings[i], _tokenDetails.complianceModules[i]);
             }
         }
+        
+        // Initialize ModularActions
+        ModularActions(ma).init();
+        ModularActions(ma).bindToken(address(token));
+        
+        // Configure action modules
+        for (uint256 i = 0; i < (_tokenDetails.actionModules).length; i++) {
+            if (!ModularActions(ma).isModuleBound(_tokenDetails.actionModules[i])) {
+                ModularActions(ma).addModule(_tokenDetails.actionModules[i]);
+            }
+            if (i < (_tokenDetails.actionSettings).length) {
+                ModularActions(ma).callModuleFunction(_tokenDetails.actionSettings[i], _tokenDetails.actionModules[i]);
+            }
+        }
+        
         tokenDeployed[_salt] = address(token);
         (Ownable(address(token))).transferOwnership(_tokenDetails.owner);
         (Ownable(address(ir))).transferOwnership(_tokenDetails.owner);
         (Ownable(address(tir))).transferOwnership(_tokenDetails.owner);
         (Ownable(address(ctr))).transferOwnership(_tokenDetails.owner);
         (Ownable(address(mc))).transferOwnership(_tokenDetails.owner);
-        emit TREXSuiteDeployed(address(token), address(ir), address(irs), address(tir), address(ctr), address(mc), _salt);
+        (Ownable(ma)).transferOwnership(_tokenDetails.owner);
+        
+        emit TREXSuiteDeployed(address(token), address(ir), address(irs), address(tir), address(ctr), address(mc), ma, _salt);
     }
 
     /**
@@ -216,7 +241,8 @@ contract TREXFactory is ITREXFactory, Ownable {
             && (ITREXImplementationAuthority(implementationAuthority_)).getIRImplementation() != address(0)
             && (ITREXImplementationAuthority(implementationAuthority_)).getIRSImplementation() != address(0)
             && (ITREXImplementationAuthority(implementationAuthority_)).getMCImplementation() != address(0)
-            && (ITREXImplementationAuthority(implementationAuthority_)).getTIRImplementation() != address(0),
+            && (ITREXImplementationAuthority(implementationAuthority_)).getTIRImplementation() != address(0)
+            && (ITREXImplementationAuthority(implementationAuthority_)).getMAImplementation() != address(0),
             "invalid Implementation Authority");
         _implementationAuthority = implementationAuthority_;
         emit ImplementationAuthoritySet(implementationAuthority_);
@@ -280,6 +306,18 @@ contract TREXFactory is ITREXFactory, Ownable {
         address implementationAuthority_
     ) private returns (address) {
         bytes memory _code = type(ModularComplianceProxy).creationCode;
+        bytes memory _constructData = abi.encode(implementationAuthority_);
+        bytes memory bytecode = abi.encodePacked(_code, _constructData);
+        return _deploy(_salt, bytecode);
+    }
+    
+    /// function used to deploy modular actions contract using CREATE2
+    function  _deployMA
+    (
+        string memory _salt,
+        address implementationAuthority_
+    ) private returns (address) {
+        bytes memory _code = type(ModularActionsProxy).creationCode;
         bytes memory _constructData = abi.encode(implementationAuthority_);
         bytes memory bytecode = abi.encodePacked(_code, _constructData);
         return _deploy(_salt, bytecode);
